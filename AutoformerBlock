@@ -1,0 +1,47 @@
+class AutoformerBlock(nn.Module):
+    def __init__(self, d_model, n_heads, d_ff, kernel_size, top_k, dropout, activation):
+        super(AutoformerBlock, self).__init__()
+        self.decomposition = SeriesDecomposition(kernel_size, d_model)
+        self.autocorr = MultiHeadAutoCorrelationLayer(n_heads=n_heads, top_k = top_k, d_model=d_model)
+        self.layer_norm1 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+
+        # 选择激活函数（不区分大小写）
+        activation = activation.lower()
+        if activation == 'relu':
+            self.activation = nn.ReLU()
+        elif activation == 'leaky_relu':
+            self.activation = nn.LeakyReLU(negative_slope=0.1)
+        elif activation == 'elu':
+            self.activation = nn.ELU(alpha=1.0)
+        elif activation == 'gelu':
+            self.activation = nn.GELU()
+        elif activation == 'swish':
+            self.activation = nn.SiLU()  # Swish 的 PyTorch 实现是 SiLU
+        elif activation == 'tanh':
+            self.activation = nn.Tanh()
+        else:
+            raise ValueError(f"Unsupported activation: {activation}")
+
+        self.feed_forward = nn.Sequential(
+            nn.Linear(d_model, d_ff),
+            self.activation,  # 使用选择的激活函数
+            nn.Linear(d_ff, d_model),
+            nn.Dropout(dropout)
+        )
+        self.layer_norm2 = nn.LayerNorm(d_model)
+
+    def forward(self, x):
+        """
+        x: Tensor of shape (batch, seq_len, d_model)
+        Returns:
+            Tensor of shape (batch, seq_len, d_model)
+        """
+        seasonal, trend = self.decomposition(x)  # (batch, seq_len, d_model) each
+        seasonal = self.autocorr(seasonal)  # (batch, seq_len, d_model)
+        trend = self.autocorr(trend)        # (batch, seq_len, d_model)
+        out = seasonal + trend  # (batch, seq_len, d_model)
+        out = self.layer_norm1(x + self.dropout1(out))  # 正确：x + 子层输出
+        feed_forward_out = self.feed_forward(out)  # (batch, seq_len, d_model)
+        out = self.layer_norm2(out + feed_forward_out)  # 正确：out + feed_forward_out
+        return out  # (batch, seq_len, d_model)
