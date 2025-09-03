@@ -1,0 +1,74 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import numpy as np
+import copy
+from sklearn.model_selection import TimeSeriesSplit
+from torch.utils.data import Dataset, DataLoader, TensorDataset
+from torch.utils.tensorboard import SummaryWriter
+from torch.amp import GradScaler, autocast
+
+# 检查 GPU 是否可用
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# 多头稀疏自相关机制定义
+class SparseAutoCorrelationLayer(nn.Module):
+    def __init__(self, top_k):
+        super(SparseAutoCorrelationLayer, self).__init__()
+        self.top_k = top_k
+
+    def forward(self, x):
+        """
+        x: Tensor of shape (batch, seq_len, d_model)
+        Returns:
+            Tensor of shape (batch, seq_len, d_model)
+        """
+        auto_corr = torch.matmul(x, x.transpose(1, 2))  # (batch, seq_len, seq_len)
+        _, indices = torch.topk(auto_corr, self.top_k, dim=-1)  # (batch, seq_len, top_k)
+        mask = torch.zeros_like(auto_corr).scatter_(-1, indices, 1.0)  # (batch, seq_len, seq_len)
+        sparse_auto_corr = auto_corr * mask  # (batch, seq_len, seq_len)
+        sparse_auto_corr = torch.softmax(sparse_auto_corr, dim=-1)  # (batch, seq_len, seq_len)
+        out = torch.matmul(sparse_auto_corr, x)  # (batch, seq_len, d_model)
+        return out  # (batch, seq_len, d_model)
+
+
+class MultiHeadAutoCorrelationLayer(nn.Module):
+    def __init__(self, n_heads, top_k, d_model):
+        super(MultiHeadAutoCorrelationLayer, self).__init__()
+        self.n_heads = n_heads
+        self.top_k = top_k
+        self.d_model = d_model
+        self.layers = nn.ModuleList([SparseAutoCorrelationLayer(top_k) for _ in range(n_heads)])
+        self.linear = nn.Linear(n_heads * d_model, d_model)  # 将多头拼接后映射回 d_model
+
+    def forward(self, x):
+        """
+        x: Tensor of shape (batch, seq_len, d_model)
+        Returns:
+            Tensor of shape (batch, seq_len, d_model)
+        """
+        auto_corrs = [layer(x) for layer in self.layers]  # List of (batch, seq_len, d_model)
+        auto_corrs = torch.cat(auto_corrs, dim=-1)  # (batch, seq_len, n_heads * d_model)
+        auto_corrs = self.linear(auto_corrs)  # (batch, seq_len, d_model)
+
+        return auto_corrs  # (batch, seq_len, d_model)
+
+
+# 序列分解模块
+class SeriesDecomposition(nn.Module):
+    def __init__(self, kernel_size, d_model):
+        super(SeriesDecomposition, self).__init__()
+        self.conv_seasonal = nn.Conv1d(d_model, d_model, kernel_size=kernel_size, padding=kernel_size // 2)
+        self.conv_trend = nn.Conv1d(d_model, d_model, kernel_size=kernel_size, padding=kernel_size // 2)
+
+    def forward(self, x):
+        """
+        x: Tensor of shape (batch, seq_len, d_model)
+        Returns:
+            seasonal: Tensor of shape (batch, seq_len, d_model)
+            trend: Tensor of shape (batch, seq_len, d_model)
+        """
+        x = x.permute(0, 2, 1)  # (batch, d_model, seq_len)
+        seasonal = self.conv_seasonal(x)  # (batch, d_model, seq_len)
+        trend = self.conv_trend(x)        # (batch, d_model, seq_len)
+        return seasonal.permute(0, 2, 1), trend.permute(0, 2, 1)  # (batch, seq_len, d_model), (batch, seq_len, d_model)
