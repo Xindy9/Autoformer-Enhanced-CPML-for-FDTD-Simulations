@@ -1,0 +1,219 @@
+import torch
+import math
+import numpy as np
+import matplotlib.pyplot as plt
+from new_autoformer.model import AutoformerModel
+
+#网络参数
+config = {
+    'input_features': 9,
+    'output_features': 3,
+    'hidden_size': 27,          # 减少模型容量
+    'num_blocks': 1,           # 增加模型深度
+    'd_ff': 27,                # 增加前馈网络的维度
+    'dropout': 0.3,            # 增加正则化
+    'kernel_size': 5,          # 减少卷积核大小
+    'n_heads': 3,
+    'top_k': 5,                # 调整top_k
+    'patience': 20,
+    'activation': 'tanh',
+
+    # 'log_dir': 'runs/autoformer_experiment_updated'
+}
+#选择GPU
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+mymodel = AutoformerModel(
+        input_dim=config['input_features'],
+        output_dim=config['output_features'],
+        d_model=config['hidden_size'],
+        n_heads=config['n_heads'],
+        num_blocks=config['num_blocks'],
+        kernel_size=config['kernel_size'],
+        d_ff=config['d_ff'],
+        top_k=config['top_k'],
+        dropout=config['dropout'],
+        activation=config['activation']
+    ).to(device)
+#导入网络模型
+mymodel.load_state_dict(torch.load('***'))
+
+
+#FDTD method  and  network
+def predict_run():
+    mymodel.eval()
+    nx = 30 + 2
+    ny = 30 + 2
+    nt = 300
+
+    c = 3e8
+    f = 1e10
+    labda = c / f
+    # dx = labda/15
+    # dy = labda/15
+    # dt = 1/(c*math.sqrt(1/(dx*dx)+1/(dy*dy)))
+    dx = 0.001
+    dy = 0.001
+    dt = 2e-12
+
+    # 介质参数
+    epsilon = 8.85e-12
+    miu = 4 * math.pi * 1e-7
+    h = (miu / epsilon) ** (0.5)
+    delta = 0
+    deltam = 0
+    ca = 1
+    cb = dt / epsilon
+    cp = 1
+    cq = dt / miu
+
+    sourcex = nx // 2
+    sourcey = ny // 2
+
+    # cpml参数    n层cpml 索引值是从0开始的
+    #边界只需1层
+    px1 = 0
+    px2 = 1
+    px3 = nx - 2
+    px4 = nx - 1
+
+    py1 = 0
+    py2 = 1
+    py3 = ny - 2
+    py4 = ny - 1
+
+    # 初始化电磁场   索引值从0开始
+    hx1 = np.zeros((nx + 1, ny))
+    hx2 = np.zeros((nx + 1, ny))
+    hy1 = np.zeros((nx, ny + 1))
+    hy2 = np.zeros((nx, ny + 1))
+    ez1 = np.zeros((nx + 1, ny + 1))
+    ez2 = np.zeros((nx + 1, ny + 1))
+    lx = px3 - px2 + 1
+    window_data = []
+    # 时间从1开始，range左闭右开，右边需要加1
+    for k in range(nt):
+        # 计算hx
+        for i in range(0, nx + 1):
+            for j in range(0, ny):
+                hx2[i, j] = hx1[i, j] - cq * (ez1[i, j + 1] - ez1[i, j]) / dy
+
+
+        # 计算hy
+        for i in range(0, nx):
+            for j in range(0, ny + 1):
+                hy2[i, j] = hy1[i, j] + cq * (ez1[i + 1, j] - ez1[i, j]) / dx
+
+
+        # 计算ez
+        for i in range(1, nx):
+            for j in range(1, ny):
+                ez2[i, j] = ez1[i, j] + cb * ((hy2[i, j] - hy2[i - 1, j]) / dx - (hx2[i, j] - hx2[i, j - 1]) / dy)
+
+
+        # 加入源
+        pulse = math.sin(2 * math.pi * f * k * dt)
+        # 双斜杠时整数除法
+        ez2[sourcex, sourcey] = pulse
+
+        #收集数据
+        input_positions_features = np.zeros((4 * lx, 9))
+        # up
+        input_positions_features[0:lx, 0] = h * hx1[px2 + 1:px3 + 2, py3 - 1]
+        input_positions_features[0:lx, 1] = h * hy1[px2:px3 + 1, py3 - 1]
+        input_positions_features[0:lx, 2] = ez1[px2 + 1:px3 + 2, py3 - 1]
+        input_positions_features[0:lx, 3] = h * hx1[px2 + 1:px3 + 2, py3]
+        input_positions_features[0:lx, 4] = h * hy1[px2:px3 + 1, py3]
+        input_positions_features[0:lx, 5] = ez1[px2 + 1:px3 + 2, py3]
+        input_positions_features[0:lx, 6] = h * hx1[px2 + 1:px3 + 2, py3 + 1]  # need predicted
+        input_positions_features[0:lx, 7] = h * hy1[px2:px3 + 1, py3 + 1]  # need predicted
+        input_positions_features[0:lx, 8] = ez1[px2 + 1:px3 + 2, py3 + 1]  # need predicted
+        # down
+        input_positions_features[lx:2 * lx, 0] = h * hx1[px2 + 1:px3 + 2, py2 + 1]
+        input_positions_features[lx:2 * lx, 1] = h * hy1[px2:px3 + 1, py2 + 2]
+        input_positions_features[lx:2 * lx, 2] = ez1[px2 + 1:px3 + 2, py2 + 2]
+        input_positions_features[lx:2 * lx, 3] = h * hx1[px2 + 1:px3 + 2, py2]
+        input_positions_features[lx:2 * lx, 4] = h * hy1[px2:px3 + 1, py2 + 1]
+        input_positions_features[lx:2 * lx, 5] = ez1[px2 + 1:px3 + 2, py2 + 1]
+        input_positions_features[lx:2 * lx, 6] = h * hx1[px2 + 1:px3 + 2, py2 - 1]  # need predicted
+        input_positions_features[lx:2 * lx, 7] = h * hy1[px2:px3 + 1, py2]  # need predicted
+        input_positions_features[lx:2 * lx, 8] = ez1[px2 + 1:px3 + 2, py2]  # need predicted
+        # left
+        input_positions_features[2 * lx:3 * lx, 0] = h * hx1[px2 + 2, py2:py3 + 1]
+        input_positions_features[2 * lx:3 * lx, 1] = h * hy1[px2 + 1, py2 + 1:py3 + 2]
+        input_positions_features[2 * lx:3 * lx, 2] = ez1[px2 + 2, py2 + 1:py3 + 2]
+        input_positions_features[2 * lx:3 * lx, 3] = h * hx1[px2 + 1, py2:py3 + 1]
+        input_positions_features[2 * lx:3 * lx, 4] = h * hy1[px2, py2 + 1:py3 + 2]
+        input_positions_features[2 * lx:3 * lx, 5] = ez1[px2 + 1, py2 + 1:py3 + 2]
+        input_positions_features[2 * lx:3 * lx, 6] = h * hx1[px2, py2:py3 + 1]  # need predicted
+        input_positions_features[2 * lx:3 * lx, 7] = h * hy1[px2 - 1, py2 + 1:py3 + 2]  # need predicted
+        input_positions_features[2 * lx:3 * lx, 8] = ez1[px2, py2 + 1:py3 + 2]  # need predicted
+        # right
+        input_positions_features[3 * lx:4 * lx, 0] = h * hx1[px3 - 1, py2:py3 + 1]
+        input_positions_features[3 * lx:4 * lx, 1] = h * hy1[px3 - 1, py2 + 1:py3 + 2]
+        input_positions_features[3 * lx:4 * lx, 2] = ez1[px3 - 1, py2 + 1:py3 + 2]
+        input_positions_features[3 * lx:4 * lx, 3] = h * hx1[px3, py2:py3 + 1]
+        input_positions_features[3 * lx:4 * lx, 4] = h * hy1[px3, py2 + 1:py3 + 2]
+        input_positions_features[3 * lx:4 * lx, 5] = ez1[px3, py2 + 1:py2 + 2]
+        input_positions_features[3 * lx:4 * lx, 6] = h * hx1[px3 + 1, py2:py3 + 1]  # need predicted
+        input_positions_features[3 * lx:4 * lx, 7] = h * hy1[px3 + 1, py2 + 1:py3 + 2]  # need predicted
+        input_positions_features[3 * lx:4 * lx, 8] = ez1[px3 + 1, py2 + 1:py3 + 2]  # need predicted
+
+        time_sequence_length=15
+        if k < time_sequence_length:
+            window_data.append(input_positions_features)
+        else:
+            #更新滑动窗口
+            window_data.append(input_positions_features)
+            window_data.pop(0)
+            if k > time_sequence_length: 
+                #调整输入数据形状
+                input_positions_times_features_np = np.array(window_data).copy().transpose(1, 0, 2)
+                input_tensor = torch.tensor(input_positions_times_features_np, dtype=torch.float32).to(device)
+                #预测
+                output_tensor = mymodel(input_tensor)  # (position, outputdim)
+                output_np = output_tensor.cpu().detach().numpy()
+                # up
+                hx2[px2 + 1:px3 + 2, py2 + 1] = output_np[0:lx, 0] / h  # need predicted
+                hy2[px2:px3 + 1, py3 + 1] = output_np[0:lx, 1] / h  # need predicted
+                ez2[px2 + 1:px3 + 2, py3 + 1] = output_np[0:lx, 2]  # need predicted
+                # down
+                hx2[px2 + 1:px3 + 2, py2 - 1] = output_np[lx:2 * lx, 0] / h  # need predicted
+                hy2[px2:px3 + 1, py2] = output_np[lx:2 * lx, 1] / h  # need predicted
+                ez2[px2 + 1:px3 + 2, py2] = output_np[lx:2 * lx, 2]  # need predicted
+                # left
+                hx2[px2, py2:py3 + 1] = output_np[2 * lx:3 * lx, 0] / h  # need predicted
+                hy2[px2 - 1, py2 + 1:py3 + 2] = output_np[2 * lx:3 * lx, 1] / h  # need predicted
+                ez2[px2, py2 + 1:py3 + 2] = output_np[2 * lx:3 * lx, 2]  # need predicted
+                # right
+                hx2[px3 + 1, py2:py3 + 1] = output_np[3 * lx:4 * lx, 0] / h  # need predicted
+                hy2[px3 + 1, py2 + 1:py3 + 2] = output_np[3 * lx:4 * lx, 1] / h  # need predicted
+                ez2[px3 + 1, py2 + 1:py3 + 2] = output_np[3 * lx:4 * lx, 2]  # need predicted
+
+                #corner
+                ####
+
+
+
+        ez1 = ez2.copy()
+        hx1 = hx2.copy()
+        hy1 = hy2.copy()
+
+
+
+
+if __name__ == '__main__':
+    predict_run()
+
+
+
+
+
+
+
+
+
+
+
+
+
