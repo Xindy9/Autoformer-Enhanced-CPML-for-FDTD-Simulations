@@ -129,35 +129,13 @@ def predict_run():
         input_positions_features[0:lx, 7] = h * hy1[px2:px3 + 1, py3 + 1]  # need predicted
         input_positions_features[0:lx, 8] = ez1[px2 + 1:px3 + 2, py3 + 1]  # need predicted
         # down
-        input_positions_features[lx:2 * lx, 0] = h * hx1[px2 + 1:px3 + 2, py2 + 1]
-        input_positions_features[lx:2 * lx, 1] = h * hy1[px2:px3 + 1, py2 + 2]
-        input_positions_features[lx:2 * lx, 2] = ez1[px2 + 1:px3 + 2, py2 + 2]
-        input_positions_features[lx:2 * lx, 3] = h * hx1[px2 + 1:px3 + 2, py2]
-        input_positions_features[lx:2 * lx, 4] = h * hy1[px2:px3 + 1, py2 + 1]
-        input_positions_features[lx:2 * lx, 5] = ez1[px2 + 1:px3 + 2, py2 + 1]
-        input_positions_features[lx:2 * lx, 6] = h * hx1[px2 + 1:px3 + 2, py2 - 1]  # need predicted
-        input_positions_features[lx:2 * lx, 7] = h * hy1[px2:px3 + 1, py2]  # need predicted
-        input_positions_features[lx:2 * lx, 8] = ez1[px2 + 1:px3 + 2, py2]  # need predicted
+        ######
         # left
-        input_positions_features[2 * lx:3 * lx, 0] = h * hx1[px2 + 2, py2:py3 + 1]
-        input_positions_features[2 * lx:3 * lx, 1] = h * hy1[px2 + 1, py2 + 1:py3 + 2]
-        input_positions_features[2 * lx:3 * lx, 2] = ez1[px2 + 2, py2 + 1:py3 + 2]
-        input_positions_features[2 * lx:3 * lx, 3] = h * hx1[px2 + 1, py2:py3 + 1]
-        input_positions_features[2 * lx:3 * lx, 4] = h * hy1[px2, py2 + 1:py3 + 2]
-        input_positions_features[2 * lx:3 * lx, 5] = ez1[px2 + 1, py2 + 1:py3 + 2]
-        input_positions_features[2 * lx:3 * lx, 6] = h * hx1[px2, py2:py3 + 1]  # need predicted
-        input_positions_features[2 * lx:3 * lx, 7] = h * hy1[px2 - 1, py2 + 1:py3 + 2]  # need predicted
-        input_positions_features[2 * lx:3 * lx, 8] = ez1[px2, py2 + 1:py3 + 2]  # need predicted
+        ######
         # right
-        input_positions_features[3 * lx:4 * lx, 0] = h * hx1[px3 - 1, py2:py3 + 1]
-        input_positions_features[3 * lx:4 * lx, 1] = h * hy1[px3 - 1, py2 + 1:py3 + 2]
-        input_positions_features[3 * lx:4 * lx, 2] = ez1[px3 - 1, py2 + 1:py3 + 2]
-        input_positions_features[3 * lx:4 * lx, 3] = h * hx1[px3, py2:py3 + 1]
-        input_positions_features[3 * lx:4 * lx, 4] = h * hy1[px3, py2 + 1:py3 + 2]
-        input_positions_features[3 * lx:4 * lx, 5] = ez1[px3, py2 + 1:py2 + 2]
-        input_positions_features[3 * lx:4 * lx, 6] = h * hx1[px3 + 1, py2:py3 + 1]  # need predicted
-        input_positions_features[3 * lx:4 * lx, 7] = h * hy1[px3 + 1, py2 + 1:py3 + 2]  # need predicted
-        input_positions_features[3 * lx:4 * lx, 8] = ez1[px3 + 1, py2 + 1:py3 + 2]  # need predicted
+        ######
+        # corner
+        ######
 
         time_sequence_length=15
         if k < time_sequence_length:
@@ -178,20 +156,13 @@ def predict_run():
                 hy2[px2:px3 + 1, py3 + 1] = output_np[0:lx, 1] / h  # need predicted
                 ez2[px2 + 1:px3 + 2, py3 + 1] = output_np[0:lx, 2]  # need predicted
                 # down
-                hx2[px2 + 1:px3 + 2, py2 - 1] = output_np[lx:2 * lx, 0] / h  # need predicted
-                hy2[px2:px3 + 1, py2] = output_np[lx:2 * lx, 1] / h  # need predicted
-                ez2[px2 + 1:px3 + 2, py2] = output_np[lx:2 * lx, 2]  # need predicted
+                ######
                 # left
-                hx2[px2, py2:py3 + 1] = output_np[2 * lx:3 * lx, 0] / h  # need predicted
-                hy2[px2 - 1, py2 + 1:py3 + 2] = output_np[2 * lx:3 * lx, 1] / h  # need predicted
-                ez2[px2, py2 + 1:py3 + 2] = output_np[2 * lx:3 * lx, 2]  # need predicted
+                ######
                 # right
-                hx2[px3 + 1, py2:py3 + 1] = output_np[3 * lx:4 * lx, 0] / h  # need predicted
-                hy2[px3 + 1, py2 + 1:py3 + 2] = output_np[3 * lx:4 * lx, 1] / h  # need predicted
-                ez2[px3 + 1, py2 + 1:py3 + 2] = output_np[3 * lx:4 * lx, 2]  # need predicted
-
+                ######
                 #corner
-                ####
+                ######
 
 
 
